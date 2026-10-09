@@ -3815,6 +3815,12 @@ pub mod rpc_full {
             })?;
             let (wire_transaction, unsanitized_tx) =
                 decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
+            solk_trace::wire(
+                "rpc.transaction.received",
+                &wire_transaction,
+                solk_trace::json!({"encoding":format!("{tx_encoding:?}"),"skip_preflight":skip_preflight,"max_retries":max_retries}),
+                file!(),
+            );
 
             let preflight_commitment = if skip_preflight {
                 Some(CommitmentConfig::processed())
@@ -3833,7 +3839,10 @@ pub mod rpc_full {
                 preflight_bank
                     .feature_set
                     .is_active(&agave_feature_set::static_instruction_limit::id()),
-            )?;
+            ).map_err(|error| {
+                solk_trace::wire("rpc.transaction.rejected", &wire_transaction, solk_trace::json!({"stage":"sanitize","result":format!("Err({error:?})")}), file!());
+                error
+            })?;
             let blockhash = *transaction.message().recent_blockhash();
             let message_hash = *transaction.message_hash();
             let signature = *transaction.signature();
@@ -3861,6 +3870,7 @@ pub mod rpc_full {
                         RpcHealthStatus::Ok => (),
                         RpcHealthStatus::Unknown => {
                             inc_new_counter_info!("rpc-send-tx_health-unknown", 1);
+                            solk_trace::tx("rpc.transaction.rejected", &signature.to_string(), solk_trace::json!({"stage":"health","reason":"health_unknown"}), None, file!());
                             return Err(RpcCustomError::NodeUnhealthy {
                                 num_slots_behind: None,
                             }
@@ -3868,6 +3878,7 @@ pub mod rpc_full {
                         }
                         RpcHealthStatus::Behind { num_slots } => {
                             inc_new_counter_info!("rpc-send-tx_health-behind", 1);
+                            solk_trace::tx("rpc.transaction.rejected", &signature.to_string(), solk_trace::json!({"stage":"health","reason":"health_behind"}), None, file!());
                             return Err(RpcCustomError::NodeUnhealthy {
                                 num_slots_behind: Some(num_slots),
                             }
@@ -3882,6 +3893,13 @@ pub mod rpc_full {
                     preflight_bank.simulate_transaction(&transaction, false)
                 };
 
+                solk_trace::tx(
+                    "rpc.preflight.finished",
+                    &signature.to_string(),
+                    solk_trace::json!({"slot":preflight_bank.slot(),"bank_id":preflight_bank.bank_id(),"result":format!("{:?}",simulation_result.result),"units_consumed":simulation_result.units_consumed,"logs":simulation_result.logs}),
+                    None,
+                    file!(),
+                );
                 if let TransactionSimulationResult {
                     result: Err(err),
                     logs,
@@ -3928,6 +3946,13 @@ pub mod rpc_full {
                 }
             }
 
+            solk_trace::tx(
+                "rpc.forward.queued",
+                &signature.to_string(),
+                solk_trace::json!({"slot":preflight_bank.slot(),"last_valid_block_height":last_valid_block_height}),
+                None,
+                file!(),
+            );
             _send_transaction(
                 meta,
                 message_hash,

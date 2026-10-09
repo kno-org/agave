@@ -41,6 +41,7 @@ frozen-abi = [
 ]
 
 [dependencies]
+solk-trace = { workspace = true }
 agave-banking-stage-ingress-types = { workspace = true }
 agave-feature-set = { workspace = true }
 agave-scheduler-bindings = { workspace = true }

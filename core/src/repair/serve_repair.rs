@@ -1121,6 +1121,13 @@ impl ServeRepair {
             peer.pubkey,
             repair_request
         );
+        solk_trace::slot(
+            "repair.request.created",
+            slot,
+            solk_trace::json!({"request":format!("{repair_request:?}"),"peer_identity":peer.pubkey.to_string(),"peer":peer.serve_repair.to_string(),"protocol":format!("{repair_protocol:?}"),"nonce":nonce}),
+            Some(&out),
+            file!(),
+        );
         match repair_protocol {
             Protocol::UDP => Ok(Some((peer.serve_repair, out))),
             Protocol::QUIC => {

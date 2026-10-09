@@ -286,7 +286,19 @@ impl ConnectionWorker {
                 break;
             }
 
+            solk_trace::wire(
+                "network.quic.send.begin",
+                &data,
+                solk_trace::json!({"peer":self.peer.to_string()}),
+                file!(),
+            );
             let result = send_data_over_stream(&connection, &data).await;
+            solk_trace::wire(
+                "network.quic.send.finished",
+                &data,
+                solk_trace::json!({"peer":self.peer.to_string(),"result":format!("{result:?}")}),
+                file!(),
+            );
 
             if let Err(error) = result {
                 trace!(

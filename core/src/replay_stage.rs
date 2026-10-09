@@ -2878,6 +2878,13 @@ impl ReplayStage {
             });
 
             let tower_slots = tower.tower_slots();
+            solk_trace::slot(
+                "consensus.vote.created",
+                bank.slot(),
+                solk_trace::json!({"bank_hash":bank.hash().to_string(),"vote_account":vote_account_pubkey.to_string(),"voter_identity":identity_keypair.pubkey().to_string(),"tower_slots":tower_slots,"vote_signature":vote_tx.signatures[0].to_string()}),
+                bincode::serialize(&vote_tx).ok().as_deref(),
+                file!(),
+            );
             voting_sender
                 .send(VoteOp::PushVote {
                     tx: vote_tx,

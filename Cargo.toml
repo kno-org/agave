@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "solk-trace",
     "account-decoder",
     "account-decoder-client-types",
     "accounts-cluster-bench",
@@ -180,6 +181,7 @@ manual_let_else = "deny"
 used_underscore_binding = "deny"
 
 [workspace.dependencies]
+solk-trace = { path = "solk-trace", version = "=3.1.7" }
 Inflector = "0.11.4"
 aes-gcm-siv = "0.11.1"
 agave-banking-stage-ingress-types = { path = "banking-stage-ingress-types", version = "=3.1.7", features = ["agave-unstable-api"] }

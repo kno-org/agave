@@ -988,6 +988,7 @@ impl Blockstore {
                 reed_solomon_cache,
             )
             .filter_map(|shred| {
+                solk_trace::slot("blockstore.shred.recovered",shred.slot(),solk_trace::json!({"index":shred.index(),"type":format!("{:?}",shred.shred_type()),"fec_set_index":shred.fec_set_index()}),Some(shred.payload().as_ref()),file!());
                 // All shreds should be retransmitted, but because there are no
                 // more missing data shreds in the erasure batch, coding shreds
                 // are not stored in blockstore.

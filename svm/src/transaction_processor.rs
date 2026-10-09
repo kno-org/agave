@@ -855,6 +855,21 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> ExecutedTransaction {
+        let _trace_scope = solk_trace::enabled().then(|| {
+            solk_trace::Scope::new(
+                &tx.signature().to_string(),
+                self.slot,
+                solk_trace::bank_id(),
+            )
+        });
+        if solk_trace::is_current() {
+            solk_trace::current(
+                "runtime.execution.begin",
+                solk_trace::json!({"account_count":loaded_transaction.accounts.len(),"compute_unit_limit":loaded_transaction.compute_budget.compute_unit_limit,"account_keys":tx.account_keys().iter().map(ToString::to_string).collect::<Vec<_>>()}),
+                None,
+                file!(),
+            );
+        }
         let transaction_accounts = std::mem::take(&mut loaded_transaction.accounts);
 
         // Ensure the length of accounts matches the expected length from tx.account_keys().
@@ -985,6 +1000,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
         let status = status.map(|_| ());
 
+        if solk_trace::is_current() {
+            solk_trace::current(
+                "runtime.execution.finished",
+                solk_trace::json!({"result":format!("{status:?}"),"units_consumed":executed_units,"logs":log_messages,"candidate_state_only":true}),
+                None,
+                file!(),
+            );
+        }
+        solk_trace::current("runtime.return_data", solk_trace::json!({"program_id":return_data.program_id.to_string(),"data_length":return_data.data.len(),"scope":"transaction_final_return_buffer"}), Some(&return_data.data), file!());
         loaded_transaction.accounts = accounts;
         execute_timings.details.total_account_count += loaded_transaction.accounts.len() as u64;
         execute_timings.details.changed_account_count += touched_account_count;

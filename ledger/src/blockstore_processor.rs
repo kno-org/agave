@@ -168,6 +168,11 @@ pub fn execute_batch<'a>(
     //   Some(_) => unified scheduler block production path
     //   None    => block verification path(s)
     let block_verification = extra_pre_commit_callback.is_none();
+    let _trace_mode = solk_trace::mode(if block_verification {
+        "replay"
+    } else {
+        "leader"
+    });
     let record_transaction_meta = transaction_status_sender.is_some();
     let mut transaction_indexes = Cow::from(transaction_indexes);
 
@@ -1559,6 +1564,26 @@ fn confirm_slot_entries(
 
     let slot = bank.slot();
     let (entries, num_shreds, slot_full) = slot_entries_load_result;
+    if solk_trace::slot_enabled(slot) {
+        for (index, entry) in entries.iter().enumerate() {
+            solk_trace::slot(
+                "replay.entry.loaded",
+                slot,
+                solk_trace::json!({"entry_index":progress.num_entries.saturating_add(index),"entry_hash":entry.hash.to_string(),"num_hashes":entry.num_hashes,"is_tick":entry.transactions.is_empty(),"signatures":entry.transactions.iter().map(|tx|tx.signatures[0].to_string()).collect::<Vec<_>>(),"slot_full":slot_full}),
+                if entry
+                    .transactions
+                    .iter()
+                    .any(|tx| solk_trace::selected(&tx.signatures[0].to_string()))
+                {
+                    bincode::serialize(entry).ok()
+                } else {
+                    None
+                }
+                .as_deref(),
+                file!(),
+            );
+        }
+    }
     let num_entries = entries.len();
     let mut entry_tx_starting_indexes = Vec::with_capacity(num_entries);
     let mut entry_tx_starting_index = progress.num_txs;

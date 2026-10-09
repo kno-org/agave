@@ -990,6 +990,10 @@ fn handle_chunks(
     let bytes_sent = accum.meta.size;
     let chunks_sent = accum.chunks.len();
 
+    if solk_trace::enabled() {
+        let wire: Vec<u8> = accum.chunks.iter().flat_map(|c|c.iter().copied()).collect();
+        solk_trace::wire("network.quic.receive", &wire, solk_trace::json!({"peer":format!("{}:{}",accum.meta.addr,accum.meta.port),"staked":peer_type.is_staked(),"boundary":"reassembled_plaintext_stream"}), file!());
+    }
     if let Err(err) = packet_sender.try_send(accum.clone()) {
         stats
             .total_handle_chunk_to_packet_batcher_send_err

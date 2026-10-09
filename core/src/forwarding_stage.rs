@@ -556,6 +556,14 @@ impl ForwardingClient for ConnectionCacheClient {
         let Some(current_address) = self.get_next_valid_leader() else {
             return Err(ForwardingClientError::LeaderContactMissing);
         };
+        for wire in &wire_transactions {
+            solk_trace::wire(
+                "tpu.forward.transport_enqueue",
+                wire,
+                solk_trace::json!({"peer":current_address.to_string()}),
+                file!(),
+            );
+        }
         let conn = self.connection_cache.get_connection(&current_address);
         conn.send_data_batch_async(wire_transactions)?;
         Ok(())
@@ -640,6 +648,14 @@ impl ForwardingClient for TpuClientNextClient {
         &self,
         wire_transactions: Vec<Vec<u8>>,
     ) -> Result<(), ForwardingClientError> {
+        for wire in &wire_transactions {
+            solk_trace::wire(
+                "tpu.forward.queued",
+                wire,
+                solk_trace::json!({"protocol":"QUIC"}),
+                file!(),
+            );
+        }
         self.sender
             .try_send(TransactionBatch::new(wire_transactions))
             .map_err(|_e| ForwardingClientError::Failed)

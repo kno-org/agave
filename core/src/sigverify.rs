@@ -78,6 +78,15 @@ impl SigVerifier for TransactionSigVerifier {
         mut batches: Vec<PacketBatch>,
         valid_packets: usize,
     ) -> Vec<PacketBatch> {
+        let captured: Vec<_> = if solk_trace::enabled() {
+            batches.iter().enumerate().flat_map(|(b,batch)| batch.iter().enumerate().filter_map(move |(p,packet)| {
+            let wire = packet.data(..)?;
+            let signature = solk_trace::signature(wire)?;
+            solk_trace::selected(&signature).then(|| { solk_trace::wire("tpu.sigverify.begin",wire,solk_trace::json!({"peer":format!("{}:{}",packet.meta().addr,packet.meta().port)}),file!()); (b,p,signature) })
+        })).collect()
+        } else {
+            Vec::new()
+        };
         sigverify::ed25519_verify(
             &mut batches,
             &self.recycler,
@@ -85,6 +94,15 @@ impl SigVerifier for TransactionSigVerifier {
             self.reject_non_vote,
             valid_packets,
         );
+        for (b, p, signature) in captured {
+            solk_trace::tx(
+                "tpu.sigverify.finished",
+                &signature,
+                solk_trace::json!({"discard":batches[b].get(p).unwrap().meta().discard()}),
+                None,
+                file!(),
+            );
+        }
         batches
     }
 }

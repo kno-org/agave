@@ -33,6 +33,7 @@ pub(crate) fn process_message<'ix_data>(
                 instruction.data,
             )
             .map_err(|err| {
+                solk_trace::current("runtime.instruction.prepare_rejected", solk_trace::json!({"instruction_index":top_level_instruction_index,"program_id":program_id.to_string(),"result":format!("Err({err:?})")}), Some(instruction.data), file!());
                 TransactionError::InstructionError(top_level_instruction_index as u8, err)
             })?;
 

@@ -141,6 +141,20 @@ impl<Tx: TransactionWithMeta> Scheduler<Tx> for GreedyScheduler<Tx> {
                 panic!("transaction state must exist")
             };
 
+            let trace_signature = if solk_trace::enabled() {
+                Some(transaction_state.transaction().signature().to_string())
+            } else {
+                None
+            };
+            if let Some(s) = trace_signature.as_ref() {
+                solk_trace::tx(
+                    "scheduler.candidate",
+                    s,
+                    solk_trace::json!({"transaction_id":format!("{:?}",id.id)}),
+                    None,
+                    file!(),
+                );
+            }
             // If there is a conflict with any of the transactions in the current batches,
             // we should immediately send out the batches, so this transaction may be scheduled.
             if !self
@@ -168,10 +182,22 @@ impl<Tx: TransactionWithMeta> Scheduler<Tx> for GreedyScheduler<Tx> {
                 },
             ) {
                 Err(TransactionSchedulingError::UnschedulableConflicts) => {
+                    if let Some(s) = trace_signature.as_ref() {
+                        solk_trace::tx(
+                            "scheduler.conflict.retry",
+                            s,
+                            solk_trace::json!({"reason":"account_conflict"}),
+                            None,
+                            file!(),
+                        );
+                    }
                     num_unschedulable_conflicts += 1;
                     self.unschedulables.push(id);
                 }
                 Err(TransactionSchedulingError::UnschedulableThread) => {
+                    if let Some(s) = trace_signature.as_ref() {
+                        solk_trace::tx("scheduler.thread.retry", s, solk_trace::json!({"reason":"conflicting_worker_not_schedulable"}), None, file!());
+                    }
                     num_unschedulable_threads += 1;
                     self.unschedulables.push(id);
                 }
@@ -185,6 +211,15 @@ impl<Tx: TransactionWithMeta> Scheduler<Tx> for GreedyScheduler<Tx> {
                         self.working_account_set.take_locks(&transaction),
                         "locks must be available"
                     );
+                    if let Some(s) = trace_signature.as_ref() {
+                        solk_trace::tx(
+                            "scheduler.dispatched",
+                            s,
+                            solk_trace::json!({"thread_id":thread_id,"cost":cost}),
+                            None,
+                            file!(),
+                        );
+                    }
                     num_scheduled += 1;
                     self.common.batches.add_transaction_to_batch(
                         thread_id,

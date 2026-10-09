@@ -480,27 +480,71 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         timings: &mut ExecuteTimings,
     ) -> Result<(), InstructionError> {
         *compute_units_consumed = 0;
-        self.push()?;
-        self.process_executable_chain(compute_units_consumed, timings)
-            // MUST pop if and only if `push` succeeded, independent of `result`.
-            // Thus, the `.and()` instead of an `.and_then()`.
-            .and(self.pop())
+        let push_result = self.push();
+        if let Err(error) = push_result {
+            solk_trace::current("runtime.instruction.push_rejected", solk_trace::json!({"result":format!("Err({error:?})")}), None, file!());
+            return Err(error);
+        }
+        let frame = self.transaction_context.get_instruction_trace_length().saturating_sub(1);
+        let mut identity = solk_trace::json!({"frame_id":frame});
+        if solk_trace::is_current() {
+            if let Ok(ix) = self.transaction_context.get_current_instruction_context() {
+                identity = solk_trace::json!({"frame_id":frame,"stack_height":ix.get_stack_height(),"program_id":ix.get_program_key().ok().map(ToString::to_string),"account_count":ix.get_number_of_instruction_accounts(),"accounts":(0..ix.get_number_of_instruction_accounts()).map(|i|solk_trace::json!({"instruction_index":i,"transaction_index":ix.get_index_of_instruction_account_in_transaction(i).ok(),"signer":ix.is_instruction_account_signer(i).ok(),"writable":ix.is_instruction_account_writable(i).ok()})).collect::<Vec<_>>()});
+                solk_trace::current("runtime.instruction.begin", identity.clone(), Some(ix.get_instruction_data()), file!());
+            }
+        }
+        self.trace_instruction_state(frame, "before");
+        let execution_result = self.process_executable_chain(compute_units_consumed, timings);
+        self.trace_instruction_state(frame, "after");
+        // pop is unconditional after a successful push; its balance checks can fail too.
+        let pop_result = self.pop();
+        let result = execution_result.and(pop_result);
+        identity["result"] = solk_trace::json!(format!("{result:?}"));
+        identity["units_consumed"] = solk_trace::json!(*compute_units_consumed);
+        solk_trace::current("runtime.instruction.finished", identity, None, file!());
+        result
     }
 
-    /// Processes a precompile instruction
+    /// Snapshot only selected instruction accounts, with each borrow dropped before execution.
+    /// These are candidate states; a later instruction or pop check may roll them back.
+    #[allow(deprecated)] // Read the actual executable metadata for evidence; do not infer it from owner.
+    fn trace_instruction_state(&self, frame: usize, phase: &str) {
+        if !solk_trace::is_current() { return; }
+        let Ok(ix) = self.transaction_context.get_current_instruction_context() else { return; };
+        let mut seen = Vec::new();
+        for i in 0..ix.get_number_of_instruction_accounts() {
+            let Ok(index) = ix.get_index_of_instruction_account_in_transaction(i) else { continue; };
+            if seen.contains(&index) { continue; }
+            seen.push(index);
+            if let Ok(account) = ix.try_borrow_instruction_account(i) {
+                solk_trace::current("runtime.instruction.account_state", solk_trace::json!({"frame_id":frame,"phase":phase,"stack_height":ix.get_stack_height(),"transaction_index":index,"address":account.get_key().to_string(),"owner":account.get_owner().to_string(),"lamports":account.get_lamports().to_string(),"executable":account.is_executable(),"writable":ix.is_instruction_account_writable(i).ok(),"data_length":account.get_data().len(),"candidate_state_only":true}), Some(account.get_data()), file!());
+            } else {
+                solk_trace::current("runtime.instruction.state_unavailable", solk_trace::json!({"frame_id":frame,"phase":phase,"transaction_index":index,"reason":"account_borrow_unavailable"}), None, file!());
+            }
+        }
+    }
+
+    /// Processes a precompile instruction using the same frame evidence as SVM instructions.
     pub fn process_precompile(
         &mut self,
         program_id: &Pubkey,
         instruction_data: &[u8],
         message_instruction_datas_iter: impl Iterator<Item = &'ix_data [u8]>,
     ) -> Result<(), InstructionError> {
-        self.push()?;
+        self.push().map_err(|error| {
+            solk_trace::current("runtime.instruction.push_rejected", solk_trace::json!({"program_id":program_id.to_string(),"precompile":true,"result":format!("Err({error:?})")}), None, file!());
+            error
+        })?;
+        let frame = self.transaction_context.get_instruction_trace_length().saturating_sub(1);
+        let height = self.transaction_context.get_current_instruction_context()?.get_stack_height();
+        solk_trace::current("runtime.instruction.begin", solk_trace::json!({"frame_id":frame,"stack_height":height,"program_id":program_id.to_string(),"precompile":true}), Some(instruction_data), file!());
         let instruction_datas: Vec<_> = message_instruction_datas_iter.collect();
-        self.environment_config
-            .epoch_stake_callback
+        let result = self.environment_config.epoch_stake_callback
             .process_precompile(program_id, instruction_data, instruction_datas)
-            .map_err(InstructionError::from)
-            .and(self.pop())
+            .map_err(InstructionError::from);
+        let result = result.and(self.pop());
+        solk_trace::current("runtime.instruction.finished", solk_trace::json!({"frame_id":frame,"stack_height":height,"program_id":program_id.to_string(),"precompile":true,"result":format!("{result:?}"),"units_consumed":0}), None, file!());
+        result
     }
 
     /// Calls the instruction's program entrypoint method

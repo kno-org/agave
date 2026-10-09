@@ -209,10 +209,17 @@ where
             ws_metrics.num_repairs.fetch_add(1, Ordering::Relaxed);
         }
         let shred = Shred::new_from_serialized_shred(shred).ok()?;
+        solk_trace::slot(
+            "blockstore.shred.insert_attempt",
+            shred.slot(),
+            solk_trace::json!({"repair":repair,"index":shred.index(),"type":format!("{:?}",shred.shred_type()),"fec_set_index":shred.fec_set_index(),"merkle_root":shred.merkle_root().ok().map(|h|h.to_string())}),
+            None,
+            file!(),
+        );
         Some((Cow::Owned(shred), repair))
     };
     let now = Instant::now();
-    let shreds: Vec<_> = thread_pool.install(|| {
+    let shreds: Vec<(Cow<Shred>, bool)> = thread_pool.install(|| {
         shreds
             .into_par_iter()
             .with_min_len(32)
@@ -221,7 +228,8 @@ where
     });
     ws_metrics.handle_packets_elapsed_us += now.elapsed().as_micros() as u64;
     ws_metrics.num_shreds_received += shreds.len();
-    let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
+    let trace_shreds: Vec<_> = if solk_trace::enabled() { shreds.iter().map(|(s,repair)|(s.slot(),s.index(),format!("{:?}",s.shred_type()),s.fec_set_index(),s.merkle_root().ok().map(|h|h.to_string()),*repair)).collect() } else { Vec::new() };
+    let insert_result = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),
         false, // is_trusted
@@ -229,7 +237,11 @@ where
         &handle_duplicate,
         reed_solomon_cache,
         metrics,
-    )?;
+    );
+    for (slot,index,kind,fec,root,repair) in trace_shreds {
+        solk_trace::slot("blockstore.shred.insert_finished", slot, solk_trace::json!({"index":index,"type":kind,"fec_set_index":fec,"merkle_root":root,"repair":repair,"result":if insert_result.is_ok(){"Ok(())"}else{"Err(batch_insert)"},"scope":"batch_insert_call","new_shred_acceptance_not_implied":true}), None, file!());
+    }
+    let completed_data_sets = insert_result?;
 
     if let Some(sender) = completed_data_sets_sender {
         sender.try_send(completed_data_sets)?;

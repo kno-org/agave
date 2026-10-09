@@ -288,6 +288,9 @@ impl<Tx: TransactionWithMeta> SchedulingCommon<Tx> {
                 .filter_map(|(index, key)| (!transaction.is_writable(index)).then_some(key));
             self.account_locks
                 .unlock_accounts(write_account_locks, read_account_locks, thread_id);
+            if solk_trace::enabled() {
+                solk_trace::tx("scheduler.account_unlock", &transaction.signature().to_string(), solk_trace::json!({"thread_id":thread_id,"batch_id":format!("{batch_id:?}"),"accounts":account_keys.iter().enumerate().map(|(i,k)|solk_trace::json!({"address":k.to_string(),"writable":transaction.is_writable(i)})).collect::<Vec<_>>(),"scope":"scheduler_thread_affinity"}), None, file!());
+            }
         }
     }
 }

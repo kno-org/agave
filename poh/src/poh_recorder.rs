@@ -353,6 +353,13 @@ impl PohRecorder {
             if mixed_in {
                 debug_assert_eq!(self.entries.len(), mixins.len());
                 for (entry, transactions) in self.entries.drain(..).zip(transaction_batches) {
+                    solk_trace::slot(
+                        "poh.entry.created",
+                        working_bank.bank.slot(),
+                        solk_trace::json!({"bank_id":bank_id,"entry_hash":entry.hash.to_string(),"num_hashes":entry.num_hashes,"tick_height":tick_height,"signatures":transactions.iter().map(|tx|tx.signatures[0].to_string()).collect::<Vec<_>>()}),
+                        None,
+                        file!(),
+                    );
                     let (send_entry_res, send_batches_us) =
                         measure_us!(self.working_bank_sender.send((
                             working_bank.bank.clone(),

@@ -147,6 +147,29 @@ impl StandardBroadcastRun {
         if self.next_code_index > max_code_shreds_per_slot {
             return Err(BroadcastError::TooManyShreds);
         }
+        if solk_trace::slot_enabled(self.slot)
+            && entries
+                .iter()
+                .flat_map(|e| &e.transactions)
+                .any(|tx| solk_trace::selected(&tx.signatures[0].to_string()))
+        {
+            solk_trace::slot(
+                "broadcast.entry_batch",
+                self.slot,
+                solk_trace::json!({"parent_slot":self.parent,"reference_tick":reference_tick,"slot_end":is_slot_end,"entries":entries.iter().map(|e|solk_trace::json!({"hash":e.hash.to_string(),"num_hashes":e.num_hashes,"is_tick":e.transactions.is_empty(),"signatures":e.transactions.iter().map(|tx|tx.signatures[0].to_string()).collect::<Vec<_>>()})).collect::<Vec<_>>(),"shreds":shreds.iter().map(|s|solk_trace::json!({"index":s.index(),"type":format!("{:?}",s.shred_type()),"fec_set_index":s.fec_set_index(),"merkle_root":s.merkle_root().ok().map(|h|h.to_string())})).collect::<Vec<_>>()}),
+                bincode::serialize(entries).ok().as_deref(),
+                file!(),
+            );
+            for shred in &shreds {
+                solk_trace::slot(
+                    "broadcast.shred.created",
+                    shred.slot(),
+                    solk_trace::json!({"index":shred.index(),"type":format!("{:?}",shred.shred_type()),"fec_set_index":shred.fec_set_index(),"merkle_root":shred.merkle_root().ok().map(|h|h.to_string())}),
+                    Some(shred.payload().as_ref()),
+                    file!(),
+                );
+            }
+        }
         Ok(shreds)
     }
 

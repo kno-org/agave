@@ -463,6 +463,13 @@ impl ClusterInfoVoteListener {
         // Hold lock for whole function to ensure hash consistency with bank_forks
         let mut slots_dumped = dumped_slot_subscription.lock().unwrap();
         let (last_vote_slot, last_vote_hash) = vote.last_voted_slot_hash().unwrap();
+        solk_trace::slot(
+            "consensus.vote.observed",
+            last_vote_slot,
+            solk_trace::json!({"bank_hash":last_vote_hash.to_string(),"vote_account":vote_pubkey.to_string(),"vote_signature":vote_transaction_signature.to_string(),"via_gossip":is_gossip_vote,"tower_slots":vote.slots()}),
+            None,
+            file!(),
+        );
 
         let latest_vote_slot = latest_vote_slot_per_validator
             .entry(*vote_pubkey)

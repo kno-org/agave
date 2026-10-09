@@ -242,7 +242,12 @@ fn run_shred_sigverify<const K: usize>(
         .flat_map(|batch| batch.iter())
         .filter(|packet| !packet.meta().discard())
         .filter_map(|packet| {
-            let shred = shred::layout::get_shred(packet)?.to_vec();
+            let (raw_shred, nonce) = shred::wire::get_shred_and_repair_nonce(packet)?;
+            let shred = raw_shred.to_vec();
+            if let (Some(slot), Some(nonce)) = (shred::layout::get_slot(&shred), nonce) {
+                solk_trace::slot("tvu.shred.repair_response", slot, solk_trace::json!({"nonce":nonce,"repair":true,"peer":format!("{}:{}",packet.meta().addr,packet.meta().port),"index":shred::layout::get_index(&shred),"fec_set_index":shred::layout::get_fec_set_index(&shred),"type":shred::layout::get_shred_id(&shred).map(|id|format!("{:?}",id.shred_type())),"merkle_root":shred::layout::get_merkle_root(&shred).map(|h|h.to_string()),"nonce_validated_before_sigverify":true}), packet.data(..), file!());
+            }
+            if let Some(slot) = shred::layout::get_slot(&shred) { solk_trace::slot("tvu.shred.verified",slot,solk_trace::json!({"peer":format!("{}:{}",packet.meta().addr,packet.meta().port),"repair":packet.meta().repair(),"index":shred::layout::get_index(&shred),"fec_set_index":shred::layout::get_fec_set_index(&shred),"type":shred::layout::get_shred_id(&shred).map(|id|format!("{:?}",id.shred_type())),"merkle_root":shred::layout::get_merkle_root(&shred).map(|h|h.to_string())}),Some(&shred),file!()); }
             Some((shred, packet.meta().repair()))
         })
         .partition_map(|(shred, repair)| {

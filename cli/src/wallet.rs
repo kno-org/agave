@@ -884,7 +884,10 @@ pub fn process_transfer(
     let from = config.signers[from];
     let mut from_pubkey = from.pubkey();
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    solk_trace::client("cli.blockhash.begin", solk_trace::json!({"query":format!("{blockhash_query:?}"),"rpc_url":config.json_rpc_url}), None, file!());
+    let blockhash_result = blockhash_query.get_blockhash(rpc_client, config.commitment);
+    solk_trace::client("cli.blockhash.finished", solk_trace::json!({"result":format!("{blockhash_result:?}")}), None, file!());
+    let recent_blockhash = blockhash_result?;
 
     if !sign_only && !allow_unfunded_recipient {
         let recipient_balance = rpc_client
@@ -964,9 +967,27 @@ pub fn process_transfer(
         config.commitment,
     )?;
     let mut tx = Transaction::new_unsigned(message);
+    // try_sign installs this hash internally. Capture the exact bytes it signs,
+    // rather than the unsigned builder's default blockhash.
+    tx.message.recent_blockhash = recent_blockhash;
 
     if sign_only {
-        tx.try_partial_sign(&config.signers, recent_blockhash)?;
+        solk_trace::client("cli.signing.begin", solk_trace::json!({"recent_blockhash":recent_blockhash.to_string(),"signer_count":config.signers.len(),"partial":true}), Some(&tx.message.serialize()), file!());
+        let signing_result = tx.try_partial_sign(&config.signers, recent_blockhash);
+        solk_trace::client("cli.signing.finished", solk_trace::json!({"result":format!("{signing_result:?}"),"partial":true}), None, file!());
+        signing_result?;
+        if solk_trace::enabled() {
+            solk_trace::register(&tx.signatures[0].to_string());
+            if let Ok(wire) = bincode::serialize(&tx) {
+                solk_trace::wire(
+                    "cli.transaction.signed",
+                    &wire,
+                    solk_trace::json!({"sign_only":true,"rpc_url":config.json_rpc_url}),
+                    file!(),
+                );
+            }
+            solk_trace::flush();
+        }
         return_signers_with_config(
             &tx,
             &config.output_format,
@@ -984,7 +1005,36 @@ pub fn process_transfer(
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
 
-        tx.try_sign(&config.signers, recent_blockhash)?;
+        solk_trace::client("cli.signing.begin", solk_trace::json!({"recent_blockhash":recent_blockhash.to_string(),"signer_count":config.signers.len()}), Some(&tx.message.serialize()), file!());
+        let signing_result = tx.try_sign(&config.signers, recent_blockhash);
+        solk_trace::client("cli.signing.finished", solk_trace::json!({"result":format!("{signing_result:?}")}), None, file!());
+        signing_result?;
+        if solk_trace::enabled() {
+            let signature = tx.signatures[0].to_string();
+            solk_trace::register(&signature);
+            solk_trace::tx(
+                "cli.message.assembled",
+                &signature,
+                solk_trace::json!({"recent_blockhash": recent_blockhash.to_string(), "account_keys": tx.message.account_keys.iter().map(ToString::to_string).collect::<Vec<_>>(), "recorded_after_signing": true}),
+                Some(&tx.message.serialize()),
+                file!(),
+            );
+            if let Ok(wire) = bincode::serialize(&tx) {
+                solk_trace::wire(
+                    "cli.transaction.signed",
+                    &wire,
+                    solk_trace::json!({"rpc_url":config.json_rpc_url}),
+                    file!(),
+                );
+            }
+            solk_trace::tx(
+                "cli.rpc.submit",
+                &signature,
+                solk_trace::json!({"rpc_url":config.json_rpc_url,"no_wait":no_wait}),
+                None,
+                file!(),
+            );
+        }
         let result = if no_wait {
             rpc_client.send_transaction_with_config(&tx, config.send_transaction_config)
         } else {
@@ -994,6 +1044,14 @@ pub fn process_transfer(
                 config.send_transaction_config,
             )
         };
+        solk_trace::tx(
+            "cli.rpc.response",
+            &tx.signatures[0].to_string(),
+            solk_trace::json!({"result": format!("{result:?}")}),
+            None,
+            file!(),
+        );
+        solk_trace::flush();
         log_instruction_custom_error::<SystemError>(result, config)
     }
 }

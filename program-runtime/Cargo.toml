@@ -25,6 +25,7 @@ metrics = []
 shuttle-test = ["solana-sbpf/shuttle-test", "solana-svm-type-overrides/shuttle-test"]
 
 [dependencies]
+solk-trace = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }
 itertools = { workspace = true }

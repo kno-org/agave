@@ -402,6 +402,13 @@ impl BankForks {
         self.root.store(root, Ordering::Release);
         self.sharable_banks.root_bank.store(Arc::clone(root_bank));
 
+        solk_trace::slot(
+            "consensus.root.advanced",
+            root,
+            solk_trace::json!({"bank_hash":root_bank.hash().to_string(),"parent_slot":root_bank.parent_slot(),"bank_id":root_bank.bank_id()}),
+            None,
+            file!(),
+        );
         let new_epoch = root_bank.epoch();
         if old_epoch != new_epoch {
             info!(

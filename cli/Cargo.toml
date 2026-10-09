@@ -16,6 +16,10 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "solana"
 path = "src/main.rs"
 
+[[bin]]
+name = "solk-trace-lab"
+path = "src/trace_lab.rs"
+
 [features]
 default = ["remote-wallet-hidraw"]
 agave-unstable-api = []
@@ -24,6 +28,7 @@ remote-wallet-hidraw = ["solana-remote-wallet/linux-static-hidraw"]
 remote-wallet-libusb = ["solana-remote-wallet/linux-static-libusb"]
 
 [dependencies]
+solk-trace = { workspace = true }
 agave-feature-set = { workspace = true }
 agave-logger = { workspace = true }
 agave-syscalls = { workspace = true }

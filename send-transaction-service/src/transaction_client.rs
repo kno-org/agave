@@ -111,6 +111,14 @@ where
         stats: &SendTransactionServiceStats,
     ) {
         let mut measure = Measure::start("send-us");
+        for wire in &wire_transactions {
+            solk_trace::wire(
+                "rpc.forward.transport_enqueue",
+                wire,
+                solk_trace::json!({"peer":peer.to_string(),"protocol":format!("{:?}",self.connection_cache.protocol())}),
+                file!(),
+            );
+        }
         let conn = self.connection_cache.get_connection(peer);
         let result = conn.send_data_batch_async(wire_transactions);
 
@@ -331,6 +339,14 @@ impl TransactionClient for TpuClientNextClient {
         stats: &SendTransactionServiceStats,
     ) {
         let mut measure = Measure::start("send-us");
+        for wire in &wire_transactions {
+            solk_trace::wire(
+                "rpc.forward.transport_enqueue",
+                wire,
+                solk_trace::json!({"protocol":"QUIC","client":"tpu-client-next","peer_resolved_by":"connection_worker"}),
+                file!(),
+            );
+        }
         self.runtime_handle.spawn({
             let sender = self.sender.clone();
             async move {

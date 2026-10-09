@@ -19,6 +19,7 @@ metrics = ["dep:solana-metrics"]
 tracing = ["dep:tracing"]
 
 [dependencies]
+solk-trace = { workspace = true }
 async-trait = { workspace = true }
 log = { workspace = true, optional = true }
 lru = { workspace = true }

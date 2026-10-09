@@ -1480,6 +1480,13 @@ impl Bank {
             .stats
             .reset();
 
+        solk_trace::slot(
+            "bank.created",
+            slot,
+            solk_trace::json!({"bank_id":new.bank_id(),"parent_bank_id":parent.bank_id(),"parent_slot":parent.slot(),"parent_bank_hash":parent.hash().to_string(),"collector":collector_id.to_string(),"block_height":new.block_height()}),
+            None,
+            file!(),
+        );
         new
     }
 
@@ -2507,6 +2514,13 @@ impl Bank {
             self.update_accounts_lt_hash();
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
+            solk_trace::slot(
+                "bank.frozen",
+                self.slot(),
+                solk_trace::json!({"bank_id":self.bank_id(),"parent_slot":self.parent_slot(),"bank_hash":hash.to_string(),"last_blockhash":self.last_blockhash().to_string(),"tick_height":self.tick_height()}),
+                None,
+                file!(),
+            );
         }
     }
 
@@ -3080,6 +3094,7 @@ impl Bank {
         transaction: &impl TransactionWithMeta,
         enable_cpi_recording: bool,
     ) -> TransactionSimulationResult {
+        let _trace_mode = solk_trace::mode("simulation");
         let account_keys = transaction.account_keys();
         let number_of_accounts = account_keys.len();
         let account_overrides = self.get_account_overrides_for_simulation(&account_keys);
@@ -3265,7 +3280,28 @@ impl Bank {
         error_counters: &mut TransactionErrorMetrics,
         processing_config: TransactionProcessingConfig,
     ) -> LoadAndExecuteTransactionsOutput {
+        let _trace_bank = solk_trace::bank(self.bank_id().to_string());
         let sanitized_txs = batch.sanitized_transactions();
+        if solk_trace::enabled() {
+            for tx in sanitized_txs {
+                let signature = tx.signature().to_string();
+                if solk_trace::selected(&signature) {
+                    let _scope =
+                        solk_trace::Scope::new(&signature, self.slot(), self.bank_id().to_string());
+                    for key in tx.account_keys().iter() {
+                        let found = self.get_account(key);
+                        let exists = found.is_some();
+                        let account = found.unwrap_or_default();
+                        solk_trace::current(
+                            "accounts.load.before_fee",
+                            solk_trace::json!({"address":key.to_string(),"exists":exists,"scope":"bank_lookup","absent_account_uses_loader_default":!exists,"lamports":account.lamports().to_string(),"owner":account.owner().to_string(),"executable":account.executable(),"data_length":account.data().len()}),
+                            Some(account.data()),
+                            file!(),
+                        );
+                    }
+                }
+            }
+        }
 
         let (check_results, check_us) = measure_us!(self.check_transactions(
             sanitized_txs,
@@ -3621,6 +3657,43 @@ impl Bank {
                 .store_accounts_seq(to_store, transactions.as_deref());
         });
 
+        if solk_trace::enabled() {
+            for (tx, result) in sanitized_txs.iter().zip(&processing_results) {
+                let signature = tx.signature().to_string();
+                if solk_trace::selected(&signature) {
+                    let _scope =
+                        solk_trace::Scope::new(&signature, self.slot(), self.bank_id().to_string());
+                    solk_trace::current(
+                        "bank.transaction.committed",
+                        solk_trace::json!({"bank_id":self.bank_id(),"was_processed":result.was_processed(),"result":format!("{:?}",result.flattened_result())}),
+                        None,
+                        file!(),
+                    );
+                    if let Ok(processed) = result {
+                        let fee = processed.fee_details();
+                        solk_trace::current(
+                            "accounts.fee.charged",
+                            solk_trace::json!({"payer":tx.account_keys().get(0).map(ToString::to_string),"transaction_fee":fee.transaction_fee().to_string(),"priority_fee":fee.prioritization_fee().to_string(),"total_fee":fee.total_fee().to_string(),"result":format!("{:?}",result.flattened_result()),"scope":"committed_fee"}),
+                            None,
+                            file!(),
+                        );
+                    }
+                    for (index, key) in tx.account_keys().iter().enumerate() {
+                        if tx.is_writable(index) {
+                            let found = self.get_account(key);
+                            let exists = found.is_some();
+                            let account = found.unwrap_or_default();
+                            solk_trace::current(
+                                "accounts.commit.after",
+                                solk_trace::json!({"address":key.to_string(),"exists":exists,"scope":"bank_lookup","absent_account_uses_loader_default":!exists,"lamports":account.lamports().to_string(),"owner":account.owner().to_string(),"executable":account.executable(),"data_length":account.data().len(),"was_processed":result.was_processed()}),
+                                Some(account.data()),
+                                file!(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         // Cached vote and stake accounts are synchronized with accounts-db
         // after each transaction.
         let ((), update_stakes_cache_us) =

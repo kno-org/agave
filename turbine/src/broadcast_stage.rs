@@ -520,6 +520,7 @@ pub fn broadcast_shreds(
                     .tvu(protocol)
                     .filter(|addr| socket_addr_space.check(addr))
                     .map(|addr| {
+                        solk_trace::slot("broadcast.shred.transport_enqueue",shred.slot(),solk_trace::json!({"peer":addr.to_string(),"index":shred.index(),"type":format!("{:?}",shred.shred_type()),"fec_set_index":shred.fec_set_index(),"protocol":format!("{protocol:?}")}),None,file!());
                         (match protocol {
                             Protocol::QUIC => Either::Right,
                             Protocol::UDP => Either::Left,

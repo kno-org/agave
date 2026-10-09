@@ -245,6 +245,22 @@ impl Consumer {
         bank: &Bank,
         batch: &TransactionBatch<impl TransactionWithMeta>,
     ) -> ExecuteAndCommitTransactionsOutput {
+        let _trace_mode = solk_trace::mode("leader");
+        if solk_trace::enabled() {
+            for (tx, lock) in batch
+                .sanitized_transactions()
+                .iter()
+                .zip(batch.lock_results())
+            {
+                solk_trace::tx(
+                    "scheduler.account_lock",
+                    &tx.signature().to_string(),
+                    solk_trace::json!({"slot":bank.slot(),"bank_id":bank.bank_id(),"result":format!("{lock:?}"),"account_keys":tx.account_keys().iter().map(ToString::to_string).collect::<Vec<_>>()}),
+                    None,
+                    file!(),
+                );
+            }
+        }
         let transaction_status_sender_enabled = self.committer.transaction_status_sender_enabled();
         let mut execute_and_commit_timings = LeaderExecuteAndCommitTimings::default();
 
@@ -398,6 +414,17 @@ impl Consumer {
             ..record_transactions_timings
         };
 
+        if solk_trace::enabled() {
+            for tx in batch.sanitized_transactions() {
+                solk_trace::tx(
+                    "leader.record.result",
+                    &tx.signature().to_string(),
+                    solk_trace::json!({"slot":bank.slot(),"bank_id":bank.bank_id(),"result":format!("{record_transactions_result:?}"),"starting_transaction_index":starting_transaction_index}),
+                    None,
+                    file!(),
+                );
+            }
+        }
         if let Err(recorder_err) = record_transactions_result {
             retryable_transaction_indexes.extend(processing_results.iter().enumerate().filter_map(
                 |(index, processing_result)| {
